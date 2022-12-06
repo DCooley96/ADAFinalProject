@@ -48,7 +48,7 @@ glm.RR <- function(GLM.RESULT, digits = 2) {
 
 ## Import Data
 ```{r}
-infantmort<-read_excel("C:\\Users\\Daisz\\Box\\Advanced Data Analysis (F23)\\Project\\Infant Mortality Income Inequality & Segregation Dataset.xlsx")
+infantmort<-read_excel("C:\Users\Daisz\Box\Advanced Data Analysis (F23)\Project\Project_Repository\Infant Mortality Income Inequality & Segregation Dataset.xlsx")
 ```
 
 ## Data Management
