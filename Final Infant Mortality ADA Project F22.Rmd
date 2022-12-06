@@ -1,0 +1,359 @@
+---
+title: "Final Infant Mortality ADA Project F22"
+author: "Daiszha Cooley"
+date: "2022-12-06"
+output: html_document
+---
+
+## Load packages 
+```{r}
+pacman::p_load(MASS, ggplot2, lmtest, sandwich, stargazer, foreign, tidyverse, boot, pscl, readxl, table1, broom, writexl, car)
+# MASS for negbin
+# ggplot2 for graphing
+# lmtest for coeftest
+# sandwich  for robust estimator
+# stargazer to view a comparison of standard errors
+# foreign for importing GSS data
+# readxl for reading in Excel file 
+# table1 for descriptive statistics table 
+# broom for getting results with Robust SEs
+# writexl export table as dataframe to excel 
+# car Box Tidwell
+```
+
+
+## Create RR function for generating IRRs and 95% CIs for Poisson models only.
+```{r}
+glm.RR <- function(GLM.RESULT, digits = 2) {
+
+    if (GLM.RESULT$family$family == "binomial") {
+        LABEL <- "OR"
+    } else if (GLM.RESULT$family$family == "poisson") {
+        LABEL <- "RR"
+    } else {
+        stop("Not logistic or Poisson model")
+    }
+
+    COEF      <- stats::coef(GLM.RESULT)
+    CONFINT   <- stats::confint(GLM.RESULT)
+    TABLE     <- cbind(coef=COEF, CONFINT)
+    TABLE.EXP <- round(exp(TABLE), digits)
+
+    colnames(TABLE.EXP)[1] <- LABEL
+
+    TABLE.EXP
+}
+```
+
+
+## Import Data
+```{r}
+infantmort<-read_excel("C:\\Users\\Daisz\\Box\\Advanced Data Analysis (F23)\\Project\\Infant Mortality Income Inequality & Segregation Dataset.xlsx")
+```
+
+## Data Management
+```{r}
+# create data set with only variables of interest 
+## check column names and numbers 
+colnames(infantmort)
+## remove variables that are not for this analysis 
+infantmort1<-infantmort[-c(2,8:9,13,17:21,22:23,25:36)] #infantmort1 only has variables of interest 
+## check columns to see if it worked 
+colnames(infantmort1)
+
+# rename variables 
+names(infantmort1)<-c("County","InfantMortality","PercentSmoking", "Smoking_Q","PercentObesity", "Obesity_Q", "Income80_20","IncomeInequal_Q", "MedianIncome", "ResSegIndex_NW/W", "PercentUnemployed", "Unemployed_Q", "PercentRural","PercentNoHSDiploma" )
+## check columns to see if it worked
+colnames(infantmort1) 
+
+# characterize data
+## str compactly displays the internal structure of an R object. It is an alternative to summary.
+str(infantmort1)
+
+# Convert PercentRural and PercentNoHSDiploma to percentage from decimal (x100)
+infantmort1$PercentRural<-round((infantmort1$PercentRural*100), digits = 2)
+infantmort1$PercentNoHSDiploma<-round((infantmort1$PercentNoHSDiploma*100), digits = 2)
+
+# Make median income a numeric variable 
+  ## view current state of MedianIncome
+  table(infantmort1$MedianIncome)
+  ## create new variable that is numeric by removing dollar signs and commas using   gsub function 
+  infantmort1$MedianIncome_n<-as.numeric(gsub("[//$,]", "",              infantmort1$MedianIncome))
+  ## check to make sure it worked 
+  summary(infantmort1$MedianIncome_n)
+  table(infantmort1$MedianIncome)
+  table(infantmort1$MedianIncome_n)
+```
+
+## Descriptive Statistics and Table 1 
+```{r}
+# add labels to variables 
+label(infantmort1$InfantMortality)<-"Infant Mortality Rate"
+label(infantmort1$Income80_20)<-"Income Inequality Ratio" 
+label(infantmort1$`ResSegIndex_NW/W`)<-"Racial Residential Segregation (Non-White/White)"
+label(infantmort1$MedianIncome_n)<-"Median Household Income"
+label(infantmort1$PercentUnemployed)<-"Percent Unemployed"
+label(infantmort1$PercentNoHSDiploma)<-"Percent with no HS Diploma"
+label(infantmort1$PercentRural)<-"Percent Rural"
+
+# create Table 1 
+Table1<-table1(~InfantMortality + Income80_20 + `ResSegIndex_NW/W` + MedianIncome_n + PercentUnemployed + PercentNoHSDiploma, rowlabelhead="Variable",footnote='SD = standard deviation', infantmort1)
+## view Table 1
+Table1
+
+# Convert Table1 to dataframe for export to excel (will ultimately transfer to Word doc)
+Table1_df<-as.data.frame(Table1)
+## view dataframe
+Table1_df
+## save to Excel 
+write_xlsx(Table1_df, "DescriptivesTable.xlsx")
+```
+
+
+## Plot histogram of infant mortality & do rough check for over-dispersion
+Look at the distribution of the infant mortality rates in the dataset using a histogram to see if it roughly follows a Poisson distribution.
+```{r}
+# histogram using base 
+hist(infantmort1$InfantMortality)
+
+# histogram using ggplot 
+ggplot(data=infantmort1,aes(x=InfantMortality))+
+  geom_histogram()+
+  theme_minimal() # right skew, not bell curve shape (normal distribution)
+
+# can also look at density plots using base or ggplot
+  ## create an object to store density function for infant mortality 
+  Dplot<-density(infantmort1$InfantMortality)
+  ## view density plot 
+  plot(Dplot)
+
+  ## OR use ggplot 
+  ggplot(data=infantmort1,aes(x=InfantMortality))+
+    geom_density()+
+    theme_minimal()
+
+# compare mean and variance of Infant Mortality to check for over-dispersion 
+mean(infantmort1$InfantMortality)
+var(infantmort1$InfantMortality) # mean = 7.03 and var = 4.88, which suggests that there will be over-dispersion in the model 
+
+# Generate table to investigate gap between 10 and 14 
+table(infantmort1$InfantMortality)# no counties have an infant mortality rate of 11, 12, 13, 14, or 15 
+```
+
+
+## Feeling Stuck on That: Test Linearity Assumption
+```{r}
+boxTidwell((log(infantmort1$InfantMortality))~infantmort1$Income80_20)
+```
+
+## Feeling Stuck on That: Test the linearity assumption for BMI using the Box Tidwell test.  We need to create a term for the predictor*log(predictor) and then run a logistic regression with that term. Remember, a SIGNIFICANT (i.e. p < .05) coefficient means the assumption IS VIOLATED and we should consider using a categorized measure of BMI. What would your conclusion be about the linearity assumption?
+```{r}
+linearitytestmod<-glm(log.mort~Income80_20, data =infantmort1, family ="poisson")
+summary(linearitytestmod)
+
+
+infantmort1 <- infantmort1%>%
+ mutate(log.mort = log(InfantMortality))
+  
+   mutate(mort.times.logmort = InfantMortality * log(InfantMortality))%>%
+  
+
+BRFSS_ex <- BRFSS_ex %>%
+  mutate(bmi.times.logbmi = bmi * log(bmi)) # create term to test linearity
+
+model2 <- glm(diabetes_binary ~ bmi + bmi.times.logbmi, data=BRFSS_ex, family="binomial") 
+
+summary(model2)
+#looking at p-value it looks like linearity is violated 
+```
+
+
+## Income Inequality: Run a univariable Poisson model to determine if the county infant mortality county varies by income inequality. b. Describe how the count of infant mortality varies by county income inequality ratio using incidence rate ratios. 
+```{r}
+# use glm to run a baseline Poisson model 
+IncomeModel0<-glm(InfantMortality ~ 1, data = infantmort1, family ="poisson")
+
+# view model
+summary(IncomeModel0)
+
+# use glm to run Poisson model 
+  ## first argument is equation y ~ x
+  ## other arguments are data = and family = 
+IncomeModel1<-glm(InfantMortality ~ Income80_20, data = infantmort1, family ="poisson")
+
+# view model
+summary(IncomeModel1)
+
+# use the glm.RR function created above to generate IRRs and 95% CIs
+  ## the second argument in the function is the number of decimal places
+glm.RR(IncomeModel1,3)
+```
+
+#Interpetation for Income Inequality Model (Exposure Only)
+For every one unit increase in a county's income inequality ratio, the incidence of infant mortality increases by a factor of 1.261 (95% CI 1.023 - 1.542). 
+
+
+## Racial Segregation: Run a univariable Poisson model to determine if the county infant mortality county varies by county racial residential segregation. b. Describe how the count of infant mortality varies by county racial residential segregation using incidence rate ratios. 
+```{r}
+# use glm to run a baseline Poisson model 
+SegregationModel0<-glm(InfantMortality ~ 1, data = infantmort1, family ="poisson")
+
+# view model
+summary(SegregationModel0)
+
+# use glm to run Poisson model 
+  ## first argument is equation y ~ x
+  ## other arguments are data = and family = 
+SegregationModel1<-glm(InfantMortality ~ `ResSegIndex_NW/W`, data = infantmort1, family ="poisson")
+
+# view model
+summary(SegregationModel1)
+
+# use the glm.RR function created above to generate IRRs and 95% CIs
+  ## the second argument in the function is the number of decimal places
+glm.RR(SegregationModel1,3)
+```
+
+# Interpretation for Racial Residential Segregation (exposure only)
+For every one unit increase in a county's Index of Dissimilarity (Racial Residential Segregation), the incidence of infant mortality increases by a factor of 1.003 (95% CI 0.992 - 1.014).
+
+
+### Check for overdispersion (run negative binomial model and use likelihood ratio test) - Income Inequality 
+```{r}
+# glm.nb creates a negative binomial regression model 
+IncomeModel1nb<-glm.nb(InfantMortality ~ Income80_20, data = infantmort1) # NOTE: Iteration limit reached warning comes up even when there are attempts to increase the limits 
+summary(IncomeModel1nb)
+
+# run lrtest to compare models
+lrtest(IncomeModel1,IncomeModel1nb) 
+  # Likelihood ratio test was not statistically significant, indicating the Poisson if the better fit. HOWEVER iteration warning is a concern. 
+
+# stargazer creates tables that hold regression analysis results from several models side-by-side. It can also output summary statistics and data frame content.
+  ## digits is an integer that indicates how many decimal places should be used
+  ## single.row is a logical value that indicates whether regression and standard errors (or CIs) should be reported on the same row
+  ## type is a character vector that specifies what type of output the command should produce (see help for options)
+  ## align is a logical value indicating whether numeric values in the same column should be aligned at the decimal mark
+stargazer(IncomeModel1,IncomeModel1nb, title=" Income Model Comparison",
+          type="text",align=TRUE,single.row=TRUE, digits=6)
+
+# Standard Error is about the same between Poisson and NB Regression
+```
+
+
+### Check for overdispersion (run negative binomial model and use likelihood ratio test) - Racial Residential Segregation
+```{r}
+# glm.nb creates a negative binomial regression model 
+SegregationModel1nb<-glm.nb(InfantMortality ~ `ResSegIndex_NW/W`, data = infantmort1) # NOTE: Iteration limit reached warning comes up even when there are attempts to increase the limits 
+summary(SegregationModel1nb)
+
+# run lrtest to compare models
+lrtest(SegregationModel1,SegregationModel1nb) 
+  # Likelihood ratio test was not statistically significant, indicating the Poisson if the better fit. HOWEVER iteration warning is a concern. 
+
+# stargazer creates tables that hold regression analysis results from several models side-by-side. It can also output summary statistics and data frame content.
+  ## digits is an integer that indicates how many decimal places should be used
+  ## single.row is a logical value that indicates whether regression and standard errors (or CIs) should be reported on the same row
+  ## type is a character vector that specifies what type of output the command should produce (see help for options)
+  ## align is a logical value indicating whether numeric values in the same column should be aligned at the decimal mark
+stargazer(SegregationModel1,SegregationModel1nb, title=" Racial Residential Segregation Model Comparison",
+          type="text",align=TRUE,single.row=TRUE, digits=6)
+
+# Standard Error is the same between Poisson and NB Regression
+```
+
+
+## Income Inequality: Run a multivariable Poisson model to determine if the county infant mortality county varies by income inequality. b. Describe how the count of infant mortality varies by county income inequality ratio using incidence rate ratios.  
+```{r}
+# use glm to run Poisson model (covariates only)
+  ## first argument is equation y ~ x
+  ## other arguments are data = and family = 
+IncomeModel2<-glm(InfantMortality ~ PercentNoHSDiploma + MedianIncome_n + PercentUnemployed, data = infantmort1, family ="poisson")
+
+# view model
+summary(IncomeModel2)
+
+# use the glm.RR function created above to generate IRRs and 95% CIs
+  ## the second argument in the function is the number of decimal places
+glm.RR(IncomeModel2,3)
+
+# run full model for Income 
+IncomeModel3<-glm(InfantMortality ~ Income80_20 + PercentNoHSDiploma + MedianIncome_n + PercentUnemployed, data = infantmort1, family ="poisson")
+
+# view model
+summary(IncomeModel3)
+
+# use the glm.RR function created above to generate IRRs and 95% CIs
+  ## the second argument in the function is the number of decimal places
+glm.RR(IncomeModel3,3)
+
+# run lrtest to compare models
+lrtest(IncomeModel2,IncomeModel3)
+
+# robust standard errors
+RobustIncome <- tidy(coeftest(IncomeModel3, vcov = vcovHC(IncomeModel3, type = 'HC3')))
+RobustIncome
+
+# get the IRRs and 95% CI based on the RSEs
+RobustIncome$IRR<- exp(RobustIncome$estimate)
+RobustIncome$lowCI <- round(exp(RobustIncome$estimate - 1.96*RobustIncome$std.error), 3)
+RobustIncome$highCI <- round(exp(RobustIncome$estimate + 1.96*RobustIncome$std.error), 3)
+
+# View 
+RobustIncome
+```
+
+# Interpretation
+After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the income inequality index the incidence of infant mortality increases by a factor of 1.139 (95% CI 0.951 – 1.364). 
+
+
+
+## Racial Residential Segregation: Run a multivariable Poisson model to determine if the county infant mortality county varies by income inequality. b. Describe how the count of infant mortality varies by county income inequality ratio using incidence rate ratios.  
+```{r}
+# run full model for Segregation 
+SegregationModel2<-glm(InfantMortality ~ `ResSegIndex_NW/W` + PercentNoHSDiploma + MedianIncome_n + PercentUnemployed, data = infantmort1, family ="poisson")
+
+# view model
+summary(SegregationModel2)
+
+# use the glm.RR function created above to generate IRRs and 95% CIs
+  ## the second argument in the function is the number of decimal places
+glm.RR(SegregationModel2,3)
+
+#run lrtest to compare models
+lrtest(IncomeModel2,SegregationModel2)
+
+# robust standard errors
+RobustSegregation <- tidy(coeftest(SegregationModel2, vcov = vcovHC(SegregationModel2, type = 'HC3')))
+RobustSegregation
+
+# get the IRRs and 95% CI based on the RSEs
+RobustSegregation$IRR<- exp(RobustSegregation$estimate)
+RobustSegregation$lowCI <- round(exp(RobustSegregation$estimate - 1.96*RobustSegregation$std.error), 3)
+RobustSegregation$highCI <- round(exp(RobustSegregation$estimate + 1.96*RobustSegregation$std.error), 3)
+
+# View 
+RobustSegregation
+```
+
+
+# Interperation 
+After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the racial residential segregation index the incidence of infant mortality increases by a factor of 1.002 (95% CI 0.996 – 1.008). 
+
+# Model Results Table 
+```{r}
+# Create Results Object 
+  ## Create object with Segregation row from RobustSegregation output 
+  Results<-RobustSegregation[2,]
+  ## View to confirm it worked
+  Results
+  ## add Income row from RobustIncome output 
+  Results<-add_row(Results,RobustIncome[2,])
+  ## select columns with term, IRR, and CLs
+  Results<-select(Results,c(1,6:8))
+  ## view to confirm 
+  Results
+  ## convert to data frame (easier to transfer to excel and then word)
+  Results_df<-as.data.frame(Results)
+  ## view 
+  Results_df
+```
