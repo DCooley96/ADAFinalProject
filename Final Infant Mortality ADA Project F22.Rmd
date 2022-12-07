@@ -48,7 +48,7 @@ glm.RR <- function(GLM.RESULT, digits = 2) {
 
 ## Import Data
 ```{r}
-infantmort<-read_excel("C:\Users\Daisz\Box\Advanced Data Analysis (F23)\Project\Project_Repository\Infant Mortality Income Inequality & Segregation Dataset.xlsx")
+infantmort<-read.csv("https://raw.githubusercontent.com/DCooley96/ADAFinalProject/main/Infant%20Mortality%20Income%20Inequality%20%26%20Segregation%20Dataset.csv")
 ```
 
 ## Data Management
@@ -70,10 +70,6 @@ colnames(infantmort1)
 ## str compactly displays the internal structure of an R object. It is an alternative to summary.
 str(infantmort1)
 
-# Convert PercentRural and PercentNoHSDiploma to percentage from decimal (x100)
-infantmort1$PercentRural<-round((infantmort1$PercentRural*100), digits = 2)
-infantmort1$PercentNoHSDiploma<-round((infantmort1$PercentNoHSDiploma*100), digits = 2)
-
 # Make median income a numeric variable 
   ## view current state of MedianIncome
   table(infantmort1$MedianIncome)
@@ -83,6 +79,11 @@ infantmort1$PercentNoHSDiploma<-round((infantmort1$PercentNoHSDiploma*100), digi
   summary(infantmort1$MedianIncome_n)
   table(infantmort1$MedianIncome)
   table(infantmort1$MedianIncome_n)
+  
+# Make Rural and Education numeric variables 
+    ## modify existing variables by removing % using gsub function 
+    infantmort1$PercentNoHSDiploma<-as.numeric(gsub("[//%]","", infantmort1$PercentNoHSDiploma))
+    infantmort1$PercentRural<-as.numeric(gsub("[//%]","", infantmort1$PercentRural))
 ```
 
 ## Descriptive Statistics and Table 1 
@@ -134,37 +135,10 @@ ggplot(data=infantmort1,aes(x=InfantMortality))+
 
 # compare mean and variance of Infant Mortality to check for over-dispersion 
 mean(infantmort1$InfantMortality)
-var(infantmort1$InfantMortality) # mean = 7.03 and var = 4.88, which suggests that there will be over-dispersion in the model 
+var(infantmort1$InfantMortality) # mean = 7.03 and var = 4.88, which suggests that there will be over-dispersion in the model (after further discussion with Josh the difference may not be large enough to indicate overdispersion)
 
 # Generate table to investigate gap between 10 and 14 
 table(infantmort1$InfantMortality)# no counties have an infant mortality rate of 11, 12, 13, 14, or 15 
-```
-
-
-## Feeling Stuck on That: Test Linearity Assumption
-```{r}
-boxTidwell((log(infantmort1$InfantMortality))~infantmort1$Income80_20)
-```
-
-## Feeling Stuck on That: Test the linearity assumption for BMI using the Box Tidwell test.  We need to create a term for the predictor*log(predictor) and then run a logistic regression with that term. Remember, a SIGNIFICANT (i.e. p < .05) coefficient means the assumption IS VIOLATED and we should consider using a categorized measure of BMI. What would your conclusion be about the linearity assumption?
-```{r}
-linearitytestmod<-glm(log.mort~Income80_20, data =infantmort1, family ="poisson")
-summary(linearitytestmod)
-
-
-infantmort1 <- infantmort1%>%
- mutate(log.mort = log(InfantMortality))
-  
-   mutate(mort.times.logmort = InfantMortality * log(InfantMortality))%>%
-  
-
-BRFSS_ex <- BRFSS_ex %>%
-  mutate(bmi.times.logbmi = bmi * log(bmi)) # create term to test linearity
-
-model2 <- glm(diabetes_binary ~ bmi + bmi.times.logbmi, data=BRFSS_ex, family="binomial") 
-
-summary(model2)
-#looking at p-value it looks like linearity is violated 
 ```
 
 
@@ -190,7 +164,7 @@ glm.RR(IncomeModel1,3)
 ```
 
 #Interpetation for Income Inequality Model (Exposure Only)
-For every one unit increase in a county's income inequality ratio, the incidence of infant mortality increases by a factor of 1.261 (95% CI 1.023 - 1.542). 
+For every one unit increase in a county's income inequality ratio, the incidence rate of infant mortality increases by a factor of 1.261 (95% CI 1.023 - 1.542). 
 
 
 ## Racial Segregation: Run a univariable Poisson model to determine if the county infant mortality county varies by county racial residential segregation. b. Describe how the count of infant mortality varies by county racial residential segregation using incidence rate ratios. 
@@ -215,7 +189,7 @@ glm.RR(SegregationModel1,3)
 ```
 
 # Interpretation for Racial Residential Segregation (exposure only)
-For every one unit increase in a county's Index of Dissimilarity (Racial Residential Segregation), the incidence of infant mortality increases by a factor of 1.003 (95% CI 0.992 - 1.014).
+For every one unit increase in a county's Index of Dissimilarity (Racial Residential Segregation), the incidence rate of infant mortality increases by a factor of 1.003 (95% CI 0.992 - 1.014).
 
 
 ### Check for overdispersion (run negative binomial model and use likelihood ratio test) - Income Inequality 
@@ -226,7 +200,7 @@ summary(IncomeModel1nb)
 
 # run lrtest to compare models
 lrtest(IncomeModel1,IncomeModel1nb) 
-  # Likelihood ratio test was not statistically significant, indicating the Poisson if the better fit. HOWEVER iteration warning is a concern. 
+  # Likelihood ratio test was not statistically significant, indicating the Poisson if the better fit. HOWEVER iteration warning is a concern [We (Josh and I) reran the code with an increased limit which had the same issue of the iteration limit being reached]
 
 # stargazer creates tables that hold regression analysis results from several models side-by-side. It can also output summary statistics and data frame content.
   ## digits is an integer that indicates how many decimal places should be used
@@ -303,7 +277,7 @@ RobustIncome
 ```
 
 # Interpretation
-After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the income inequality index the incidence of infant mortality increases by a factor of 1.139 (95% CI 0.951 – 1.364). 
+After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the income inequality index the incidence rate of infant mortality increases by a factor of 1.139 (95% CI 0.951 – 1.364). 
 
 
 
@@ -337,7 +311,7 @@ RobustSegregation
 
 
 # Interperation 
-After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the racial residential segregation index the incidence of infant mortality increases by a factor of 1.002 (95% CI 0.996 – 1.008). 
+After controlling for county level education, median household income, and unemployment income inequality, for every one unit increase in the racial residential segregation index the incidence rate of infant mortality increases by a factor of 1.002 (95% CI 0.996 – 1.008). 
 
 # Model Results Table 
 ```{r}
